@@ -46,5 +46,7 @@ int main() {
             }
         }
     }
+    inotify_rm_watch(fd, wd);
+    close(fd);
     closelog();
 }
