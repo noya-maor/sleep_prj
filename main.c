@@ -1,17 +1,14 @@
 #include <stdio.h>
 #include <sys/inotify.h>
 #include <unistd.h>
-#include <time.h>
 #include <stdlib.h>
+#include <syslog.h>
 
 #define EVENT_SIZE  (sizeof(struct inotify_event))
 #define BUF_LEN     (1024 * (EVENT_SIZE + 16))
 
 int main() {
-    FILE* logFile;
-    time_t timer;
-    char buffer_time[26];
-    struct tm* tm_info;
+    openlog("inotify_monitor", LOG_PID | LOG_CONS, LOG_USER);
 
     int wd;
     int length, i = 0;
@@ -19,7 +16,7 @@ int main() {
 
     int fd = inotify_init();
     wd = inotify_add_watch(fd,
-        "/been/sleep", IN_ACCESS);
+        "/bin/sleep", IN_ACCESS);
     if (wd < 0)
         perror("inotify_add_watch");
 
@@ -36,17 +33,7 @@ int main() {
             event->wd, event->mask,
             event->cookie, event->len);
 
-        time(&timer);
-        tm_info = localtime(&timer);
-        strftime(buffer_time, 26, "%Y-%m-%d %H:%M:%S", tm_info);
-        logFile = fopen("/home/user/Desktop/temp/access_log.log", "a");
-        if (logFile == NULL) {
-            perror("Error opening file");
-            return 1;
-        }
-
-        fprintf(logFile, "[%s] - the file /bin/sleep was accessed.\n", buffer_time);
-        fclose(logFile);
+	syslog(LOG_INFO, "The file was accessed.");
 
         i += EVENT_SIZE + event->len;
 
@@ -59,5 +46,5 @@ int main() {
             }
         }
     }
-
+    closelog();
 }
