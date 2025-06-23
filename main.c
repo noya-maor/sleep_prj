@@ -8,7 +8,6 @@
 #define BUF_LEN     (1024 * (EVENT_SIZE + 16))
 
 int main() {
-
     FILE* logFile;
     time_t timer;
     char buffer_time[26];
