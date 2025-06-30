@@ -10,7 +10,7 @@
 int main() {
     openlog("inotify_monitor", LOG_PID | LOG_CONS, LOG_USER);
 
-    int wd;
+    int wd = 0;
     int length, i = 0;
     char buffer_inotify[BUF_LEN];
 
@@ -25,6 +25,10 @@ int main() {
         perror("read");
     }
     while (i < length) {
+	if ((length - i) < sizeof(struct inotify_event)) {
+       	    fprintf(stderr, "Incomplete inotify_event\n");
+            break;
+    	    }
         struct inotify_event* event;
 
         event = (struct inotify_event*)&buffer_inotify[i];
