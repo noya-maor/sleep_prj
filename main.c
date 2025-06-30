@@ -3,65 +3,91 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <syslog.h>
+#include <string.h>
+#include <errno.h>
 
 #define EVENT_SIZE  (sizeof(struct inotify_event))
 #define BUF_LEN     (1024 * (EVENT_SIZE + 16))
 
-int main() {
-    printf("good\n");
-    openlog("inotify_monitor", LOG_PID | LOG_CONS, LOG_USER);
+#define SUCCESS (0)
+#define ERR_INOTIFY_INIT_FAILED (1)
+#define ERR_INCOMPLETE_EVENT (2)
+#define ERR_ADD_WATCH_FAILED (3)
+#define ERR_READ (4)
 
-    int wd = 0;
-    int length, i = 0;
-    char buffer_inotify[BUF_LEN];
-
-    int fd = inotify_init();
-    if (fd == -1){
-	perror("inotify_init");
-	}
-
-
-    wd = inotify_add_watch(fd,
-        "/bin/sleep", IN_ALL_EVENTS);
-
-    if (wd < 0){
-        perror("inotify_add_watch");
+void error_exit(const char *msg, int code, int fd, int wd) {
+    perror(msg);
+    if (wd >= 0) {
+   	inotify_rm_watch(fd, wd);
     }
-    else {
-    	length = read(fd, buffer_inotify, BUF_LEN);
-    	if (length < 0) {
-        	perror("read");
-           }
-	}
 
-    while (i < length) {
-	if ((length - i) < sizeof(struct inotify_event)) {
-       	    fprintf(stderr, "Incomplete inotify_event\n");
-            return 3;
-    	    }
-        struct inotify_event* event;
+    if (fd >= 0) {
+    	close(fd);
+    }
+    closelog();
+    exit(code);
+}
 
-        event = (struct inotify_event*)&buffer_inotify[i];
+void handle_event(struct inotify_event *event) {
+    printf("wd=%d mask=%u cookie=%u len=%u\n",
+           event->wd, event->mask,
+           event->cookie, event->len);
+    syslog(LOG_INFO, "The file was accessed.");
+}
 
-        printf("wd=%d mask=%u cookie=%u len=%u\n",
-            event->wd, event->mask,
-            event->cookie, event->len);
+void process_events(int fd, int wd) {
+    char buffer_inotify[BUF_LEN];
+    int length, i;
 
-	syslog(LOG_INFO, "The file was accessed.");
+        length = read(fd, buffer_inotify, BUF_LEN);
+        if (length < 0) {
+            error_exit("read", ERR_READ, fd, wd);
+        }
 
-        i += EVENT_SIZE + event->len;
-
-
-        if (i == length) {
-            i = 0;
-            length = read(fd, buffer_inotify, BUF_LEN);
-            if (length < 0) {
-                perror("read");
+        i = 0;
+        while (i < length) {
+            if ((length - i) < sizeof(struct inotify_event)) {
+                perror("Incomplete inotify_event\n");
+                error_exit("Incomplete inotify_event", ERR_INCOMPLETE_EVENT, fd, wd);
             }
+
+            struct inotify_event *event = (struct inotify_event *) &buffer_inotify[i];
+            handle_event(event);
+
+            i += EVENT_SIZE + event->len;
+
+	    if(i == length) {
+		i = 0;
+		length = read(fd, buffer_inotify, BUF_LEN);
+		if (length < 0){
+		    error_exit("read",ERR_READ, fd, wd);
+		}
+
         }
     }
+}
+
+void cleanup(int fd, int wd) {
     inotify_rm_watch(fd, wd);
     close(fd);
     closelog();
-    return 0;
+}
+
+int main() {
+    openlog("inotify_monitor", LOG_PID | LOG_CONS, LOG_USER);
+
+    int fd = inotify_init();
+    if (fd < 0) {
+        error_exit("inotify_init", ERR_INOTIFY_INIT_FAILED, fd, -1);
+    }
+
+    int wd = inotify_add_watch(fd, "/bin/sleep", IN_ALL_EVENTS);
+    if (wd < 0) {
+        error_exit("inotify_add_watch", ERR_ADD_WATCH_FAILED, fd, wd);
+    }
+
+    process_events(fd, wd);
+
+    cleanup(fd, wd);
+    return SUCCESS;
 }
