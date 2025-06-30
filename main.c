@@ -8,6 +8,7 @@
 #define BUF_LEN     (1024 * (EVENT_SIZE + 16))
 
 int main() {
+    printf("good\n");
     openlog("inotify_monitor", LOG_PID | LOG_CONS, LOG_USER);
 
     int wd = 0;
@@ -15,19 +16,28 @@ int main() {
     char buffer_inotify[BUF_LEN];
 
     int fd = inotify_init();
-    wd = inotify_add_watch(fd,
-        "/bin/sleep", IN_ACCESS);
-    if (wd < 0)
-        perror("inotify_add_watch");
+    if (fd == -1){
+	perror("inotify_init");
+	}
 
-    length = read(fd, buffer_inotify, BUF_LEN);
-    if (length < 0) {
-        perror("read");
+
+    wd = inotify_add_watch(fd,
+        "/bin/sleep", IN_ALL_EVENTS);
+
+    if (wd < 0){
+        perror("inotify_add_watch");
     }
+    else {
+    	length = read(fd, buffer_inotify, BUF_LEN);
+    	if (length < 0) {
+        	perror("read");
+           }
+	}
+
     while (i < length) {
 	if ((length - i) < sizeof(struct inotify_event)) {
        	    fprintf(stderr, "Incomplete inotify_event\n");
-            break;
+            return 3;
     	    }
         struct inotify_event* event;
 
@@ -53,4 +63,5 @@ int main() {
     inotify_rm_watch(fd, wd);
     close(fd);
     closelog();
+    return 0;
 }
