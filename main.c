@@ -1,67 +1,91 @@
 #include <stdio.h>
-#include <sys/inotify.h>
-#include <unistd.h>
+#include <dirent.h>
+#include <string.h>
 #include <stdlib.h>
 #include <syslog.h>
 
-#define EVENT_SIZE  (sizeof(struct inotify_event))
-#define BUF_LEN     (1024 * (EVENT_SIZE + 16))
-
-int main() {
-    printf("good\n");
-    openlog("inotify_monitor", LOG_PID | LOG_CONS, LOG_USER);
-
-    int wd = 0;
-    int length, i = 0;
-    char buffer_inotify[BUF_LEN];
-
-    int fd = inotify_init();
-    if (fd == -1){
-	perror("inotify_init");
-	}
-
-
-    wd = inotify_add_watch(fd,
-        "/bin/sleep", IN_ALL_EVENTS);
-
-    if (wd < 0){
-        perror("inotify_add_watch");
+void add_to_array(char ***array, int *size, int *capacity, const char *str) {
+    if (*size >= *capacity) {
+        *capacity = *capacity ? *capacity * 2 : 4;
+        char **temp = realloc(*array, (*capacity) * sizeof(char *));
+        if (!temp) {
+            perror("realloc failed");
+            exit(EXIT_FAILURE);
+        }
+        *array = temp;
     }
-    else {
-    	length = read(fd, buffer_inotify, BUF_LEN);
-    	if (length < 0) {
-        	perror("read");
-           }
-	}
 
-    while (i < length) {
-	if ((length - i) < sizeof(struct inotify_event)) {
-       	    fprintf(stderr, "Incomplete inotify_event\n");
-            return 3;
-    	    }
-        struct inotify_event* event;
-
-        event = (struct inotify_event*)&buffer_inotify[i];
-
-        printf("wd=%d mask=%u cookie=%u len=%u\n",
-            event->wd, event->mask,
-            event->cookie, event->len);
-
-	syslog(LOG_INFO, "The file was accessed.");
-
-        i += EVENT_SIZE + event->len;
+    (*array)[*size] = strdup(str);
+    if (!(*array)[*size]) {
+        perror("strdup failed");
+        exit(EXIT_FAILURE);
+    }
+    (*size)++;
+}
 
 
-        if (i == length) {
-            i = 0;
-            length = read(fd, buffer_inotify, BUF_LEN);
-            if (length < 0) {
-                perror("read");
-            }
+int string_in_array(char **array, int size, const char *str) {
+    for (int i = 0; i < size; i++) {
+        if (strcmp(array[i], str) == 0) {
+            return 1;
         }
     }
-    inotify_rm_watch(fd, wd);
-    close(fd);
-    closelog();
+    return 0;
+}
+
+
+int main(void)
+{
+    char **array = NULL;
+    int size = 0;
+    int capacity = 0;
+    int is_in_array = 0;
+
+    openlog("sleep_monitor", LOG_PID | LOG_CONS, LOG_USER);
+    char log_line[1024];
+
+    FILE *fptr;
+    char buffer[256];
+
+    struct dirent *de;
+
+    while(1){
+
+    DIR *dr = opendir("/proc");
+    char base_path[] = "/proc";
+    
+    if (dr == NULL){
+        perror("Could not open current directory" );
+        return 0;
+    }
+
+    while ((de = readdir(dr)) != NULL) {
+	char path[1024];
+        snprintf(path, sizeof(path), "%s/%s/comm", base_path, de->d_name);
+	
+    	fptr = fopen(path, "r");
+    	char myString[100];
+	if (fptr == NULL) {
+            continue;
+    	}
+
+	fgets(myString, 100, fptr);
+	
+	if (strstr(myString, "sleep") != NULL) {
+	    is_in_array = string_in_array(array, size, de->d_name);
+		if (!is_in_array){
+	    	    printf("%s,%s\n", de->d_name,myString);		
+            	    snprintf(log_line, sizeof(log_line), "the file was accessed. PID: %s", de->d_name);
+
+	    syslog(LOG_INFO,"%s",log_line);
+		    add_to_array(&array, &size, &capacity, de->d_name);
+	    }
+	}
+
+
+	fclose(fptr);
+    }
+    closedir(dr);    
+    }
     return 0;
 }
